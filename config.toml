@@ -1,0 +1,12 @@
+[auth]
+base_url = "http://121.127.37.252:2131"
+
+[chat]
+ws_url = "ws://121.127.37.252:3121/ws"
+default_history_limit = 50
+
+[session]
+default_lifetime_seconds = 3600
+
+[ui]
+clear_screen_on_menu = true
