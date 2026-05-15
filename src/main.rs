@@ -84,7 +84,7 @@ fn default_clear_menu() -> bool {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct SessionUserInfo {
-    uuid: String,
+    uuid: Option<String>,
     username: String,
 }
 
@@ -100,7 +100,7 @@ struct UserProfile {
     last_name: String,
     date_of_birth: String,
     additional_info: String,
-    pub uuid: String,
+    pub uuid: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -138,7 +138,7 @@ struct StoredMessage {
 #[derive(Debug, Deserialize, Clone)]
 struct ConnectionInfo {
     number: usize,
-    uuid: String,
+    uuid: Option<String>,
     username: String,
 }
 
@@ -608,7 +608,10 @@ impl App {
         if let Some(me) = &self.me {
             println!(
                 "{}Session:{} user={} ({})",
-                CYAN, RESET, me.username, me.uuid
+                CYAN,
+                RESET,
+                me.username,
+                me.uuid.as_deref().unwrap_or("n/a")
             );
         } else {
             println!("{}Session:{} not authorized", YELLOW, RESET);
@@ -791,7 +794,7 @@ impl App {
         }
 
         let _ = self.auth.set_online(&token).await;
-        print_ok(&format!("Login successful: {} ({})", me.username, me.uuid));
+        print_ok(&format!("Login successful: {} ({})", me.username, me.uuid.as_deref().unwrap_or("n/a")));
 
         if let Err(e) = self.connect_chat().await {
             print_error(&format!("Chat connection failed: {e}"));
@@ -901,7 +904,7 @@ impl App {
 
                     match self.auth.get_user_info(token, &username).await {
                         Ok(profile) => {
-                            let user_id = profile.uuid.clone();
+                            let user_id = profile.uuid.clone().unwrap_or(profile.username.clone());
                             let label = prompt("label (optional)");
                             self.ensure_chat_exists(&user_id, if label.is_empty() { None } else { Some(label) });
                             print_ok(&format!("Chat with {} ({}) added", username, short_id(&user_id)));
@@ -1066,7 +1069,7 @@ impl App {
         );
         println!("{}------------------------------------------------------------{}", DIM, RESET);
 
-        let my_id = self.me.as_ref().map(|x| x.uuid.as_str());
+        let my_id = self.me.as_ref().and_then(|x| x.uuid.as_deref());
         for msg in messages {
             let direction = if Some(msg.sender_id.as_str()) == my_id {
                 "out"
@@ -1125,8 +1128,8 @@ impl App {
                         println!("  none");
                     } else {
                         for c in connections {
-                            println!("  #{} {} ({})", c.number, c.username, c.uuid);
-                        }
+                                println!("  #{} {} ({})", c.number, c.username, c.uuid.as_deref().unwrap_or("n/a"));
+                            }
                     }
                     return;
                 }
@@ -1286,7 +1289,7 @@ impl App {
     fn handle_server_event(&mut self, event: ServerEvent) {
         match event {
             ServerEvent::Message { message } => {
-                let me = self.me.as_ref().map(|x| x.uuid.clone()).unwrap_or_default();
+                let me = self.me.as_ref().and_then(|x| x.uuid.clone()).unwrap_or_default();
                 let peer_id = if message.sender_id == me {
                     message.receiver_id.clone()
                 } else {
@@ -1386,7 +1389,7 @@ impl App {
                                 self.current_username = Some(selected_username.clone());
                                 
                                 let _ = self.auth.set_online(&token).await;
-                                print_ok(&format!("Switched to account: {} ({})", me.username, me.uuid));
+                                print_ok(&format!("Switched to account: {} ({})", me.username, me.uuid.as_deref().unwrap_or("n/a")));
                                 
                                 // Reconnect WebSocket
                                 if let Err(e) = self.connect_chat().await {
@@ -1556,7 +1559,7 @@ fn print_chat_list(chats: &[ChatEntry]) {
 
 fn print_profile(profile: &UserProfile) {
     println!("\n{}Profile:{}", BOLD, RESET);
-    println!("  uuid           : {}", profile.uuid);
+    println!("  uuid           : {}", profile.uuid.as_deref().unwrap_or("n/a"));
     println!("  username       : {}", profile.username);
     println!("  first_name     : {}", profile.first_name);
     println!("  last_name      : {}", profile.last_name);
