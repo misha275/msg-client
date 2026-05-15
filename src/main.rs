@@ -439,11 +439,44 @@ struct WsSession {
     inbound_rx: mpsc::UnboundedReceiver<ServerEvent>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ChatEntry {
     user_id: String,
     label: String,
     unread: usize,
+}
+
+fn get_chats_file() -> PathBuf {
+    if let Some(config_dir) = dirs::config_dir() {
+        config_dir.join("messenger-client").join("chats.json")
+    } else {
+        PathBuf::from(".messenger-chats.json")
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ChatsList {
+    chats: Vec<ChatEntry>,
+}
+
+fn load_chats_list() -> Vec<ChatEntry> {
+    let chats_file = get_chats_file();
+    if let Ok(content) = fs::read_to_string(&chats_file) {
+        if let Ok(list) = serde_json::from_str::<ChatsList>(&content) {
+            return list.chats;
+        }
+    }
+    Vec::new()
+}
+
+fn save_chats_list(chats: &Vec<ChatEntry>) -> Result<(), String> {
+    let chats_file = get_chats_file();
+    if let Some(parent) = chats_file.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create config directory: {e}"))?;
+    }
+    let list = ChatsList { chats: chats.clone() };
+    let json = serde_json::to_string_pretty(&list).map_err(|e| format!("JSON serialization failed: {e}"))?;
+    fs::write(&chats_file, json).map_err(|e| format!("Failed to save chats list: {e}"))
 }
 
 // Session management functions
@@ -551,7 +584,7 @@ impl App {
             session_token: None,
             me: None,
             ws: None,
-            chats: Vec::new(),
+            chats: load_chats_list(),
             current_username: None,
         }
     }
@@ -931,6 +964,9 @@ impl App {
                         continue;
                     }
                     self.chats.remove(idx - 1);
+                    if let Err(e) = save_chats_list(&self.chats) {
+                        print_error(&format!("Failed to save chats: {e}"));
+                    }
                     print_ok("Chat removed");
                 }
                 "4" => {
@@ -959,6 +995,9 @@ impl App {
 
         if let Some(current) = self.chats.get_mut(index) {
             current.unread = 0;
+            if let Err(e) = save_chats_list(&self.chats) {
+                print_error(&format!("Failed to save chats: {e}"));
+            }
         }
 
         loop {
@@ -1001,6 +1040,9 @@ impl App {
                     let new_label = prompt_required("new label");
                     if let Some(current) = self.chats.get_mut(index) {
                         current.label = new_label;
+                        if let Err(e) = save_chats_list(&self.chats) {
+                            print_error(&format!("Failed to save chats: {e}"));
+                        }
                     }
                 }
                 "0" => break,
@@ -1302,6 +1344,9 @@ impl App {
                     && let Some(chat) = self.chats.iter_mut().find(|c| c.user_id == peer_id)
                 {
                     chat.unread = chat.unread.saturating_add(1);
+                    if let Err(e) = save_chats_list(&self.chats) {
+                        print_error(&format!("Failed to save chats: {e}"));
+                    }
                 }
 
                 let text = message.text.as_deref().unwrap_or("<file>");
@@ -1315,6 +1360,12 @@ impl App {
                     "\n{}[event]{} mark_read for {} updated {} messages",
                     CYAN, RESET, with_user_id, updated
                 );
+                if let Some(chat) = self.chats.iter_mut().find(|c| c.user_id == with_user_id) {
+                    chat.unread = 0;
+                    if let Err(e) = save_chats_list(&self.chats) {
+                        print_error(&format!("Failed to save chats: {e}"));
+                    }
+                }
             }
             ServerEvent::ReadReceipt { by_user_id, updated } => {
                 println!(
@@ -1351,6 +1402,9 @@ impl App {
             label: label.unwrap_or_else(|| format!("user-{}", short_id(user_id))),
             unread: 0,
         });
+        if let Err(e) = save_chats_list(&self.chats) {
+            print_error(&format!("Failed to save chats: {e}"));
+        }
     }
 
     async fn switch_account_menu(&mut self) {
